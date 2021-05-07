@@ -1,0 +1,5 @@
+#!/bin/sh
+
+g++ -o altbit altbit.cpp
+g++ -o gobackn gobackn.cpp
+
