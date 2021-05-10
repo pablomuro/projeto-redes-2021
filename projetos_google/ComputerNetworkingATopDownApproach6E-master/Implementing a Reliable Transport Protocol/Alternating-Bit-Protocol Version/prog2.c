@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <string.h>
+#include <limits.h>
+
 
 /* ******************************************************************
  ALTERNATING BIT AND GO-BACK-N NETWORK EMULATOR: VERSION 1.1  J.F.Kurose
@@ -350,7 +353,7 @@ init()                         /* initialize the simulator */
 /****************************************************************************/
 float jimsrand()
 {
-	double mmm = 32767;   	   /* largest int  - MACHINE DEPENDENT!!!!!!!!   */
+	double mmm = INT_MAX;   	   /* largest int  - MACHINE DEPENDENT!!!!!!!!   */
 	float x;                   /* individual students may need to change mmm */
 	x = rand() / mmm;          /* x should be uniform in [0,1] */
 	return (x);
