@@ -84,6 +84,20 @@ B_init()
 {
 }
 
+/* Funções auxiliares */
+
+int get_checksum(struct pkt *packet)
+{
+  int checksum = 0;
+  checksum += packet->seqnum;
+  checksum += packet->acknum;
+  for (int i = 0; i < 20; ++i)
+  {
+    checksum += packet->payload[i];
+  }
+  return checksum;
+}
+
 /*****************************************************************
 ***************** NETWORK EMULATION CODE STARTS BELOW ***********
 The code below emulates the layer 3 and below network environment:
