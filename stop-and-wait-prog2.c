@@ -40,7 +40,7 @@ struct pkt
 
 /********* OS ALUNOS DEVEM ESCREVER AS SEGUINTES 07 ROTINAS*********/
 
-float RTT = 15.0;
+float RTT = 35.0;
 
 int sequencia_sender = 0;	/* Sequência esperada por A */
 int sequencia_receiver = 0;	/* Sequência esperada por B */
@@ -52,7 +52,7 @@ struct pkt ultimo_pacote;	/* Último pacote enviado por A */
 void A_output(message) struct msg message;
 {
 	/* Se A está a espera de ACK retorna */
-	if (sender_em_espera){
+	if (sender_em_espera == 1){
     /*  printf("Sender: Em Espera de ACK\n"); */
 		return;
   }
@@ -60,10 +60,11 @@ void A_output(message) struct msg message;
   /* Cria pacote e gera checksum */
 	memcpy(ultimo_pacote.payload, message.data, sizeof(message.data));
 	ultimo_pacote.seqnum = sequencia_sender;
-	ultimo_pacote.checksum = 0;
+	ultimo_pacote.acknum = 0;
 	ultimo_pacote.checksum = calcula_checksum(&ultimo_pacote);
 
   /* Envia pacote e inicia timer */
+  printf("\n\nEnviando %s de A para B\n\n",ultimo_pacote.payload);
 	tolayer3(0, ultimo_pacote);
 	starttimer(0, RTT);
 
@@ -80,16 +81,26 @@ void B_output(message) struct msg message;
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(packet) struct pkt packet;
 {
-  /* Para o timer */
-  stoptimer(0);
-	if (packet.acknum == sequencia_sender) {	/* ACK */
+  if(sender_em_espera == 0){
+    return;
+  }
+  /* Erro, reenvio de pacote e reinicio do timer */
+  printf("\n\nA_input() acknum: %d \t seqnum: %d \t sequencia_sender: %d\n\n",packet.acknum, packet.seqnum, sequencia_sender);
+
+  /* NAK */
+  if (packet.acknum == -1) {	
+    /* Erro, reenvio de pacote e reinicio do timer */
+    printf("Reenviando %s de A para B\n\n",ultimo_pacote.payload);
+		tolayer3(0, ultimo_pacote);
+		/* starttimer(0, RTT); */
+	} else 	if (packet.acknum == 1 && packet.seqnum == sequencia_sender) {	
+    	/* ACK */
     /* Pacote aceito, passa para a proxima sequência e retira o sender do modo de espera */
 		sequencia_sender = 1 - sequencia_sender;
 		sender_em_espera = 0;
-	} else if (packet.acknum == -1) {		/* NAK */
-    /* Erro, reenvio de pacote e reinicio do timer */
-		tolayer3(0, ultimo_pacote);
-		starttimer(0, RTT);
+    /* Para o timer */
+    stoptimer(0);
+    printf("OK sender_em_espera = 0, pronto para mandar outro pacote\n\n");
 	}
 }
 
@@ -97,6 +108,7 @@ void A_input(packet) struct pkt packet;
 void A_timerinterrupt()
 {
   /* Timeout, reenvio de pacote e reinicio do timer */
+  printf("\n\nTime Out - Reenviando %s de A para B\n\n",ultimo_pacote.payload);
   tolayer3(0, ultimo_pacote);
 	starttimer(0, RTT);
 }
@@ -119,8 +131,9 @@ void B_input(packet) struct pkt packet;
 
   if (packet.seqnum == sequencia_receiver) {
 		/* Se checksum diferentes envia NAK */
-		if (packet.checksum != calcula_checksum(&packet)){
+		if (esta_corrompido(&packet)){
 			resposta.acknum = -1;
+      printf("\n\nNAK em B\n\n");
 			tolayer3(1, resposta);
 			return;
 		}
@@ -128,17 +141,18 @@ void B_input(packet) struct pkt packet;
 		/* Envia os dados para o layer5 */
 		struct msg mensagem;
 		memcpy(mensagem.data, packet.payload, sizeof(packet.payload));
+    printf("\n\nRecebido %s de A para B\n\n",mensagem.data);
 		tolayer5(1, mensagem.data);
 
     /* Passa para a proxima sequência */
 		sequencia_receiver = 1 - sequencia_receiver;
-
-    /* printf("Receiver: Pacote aceito\n"); */
 	}
 
 	/* Envia ACK para A */
-
-	resposta.acknum = packet.seqnum;
+  printf("\n\npacket.seqnum:\t\t%d\nsequencia_receiver:\t%d\n\n",packet.seqnum, sequencia_receiver);
+	resposta.acknum = 1;
+  resposta.seqnum = packet.seqnum;
+  resposta.checksum = packet.checksum;
 	tolayer3(1, resposta);
 }
 
@@ -166,6 +180,15 @@ int calcula_checksum(struct pkt *packet)
     checksum += packet->payload[i];
   }
   return checksum;
+}
+
+int  esta_corrompido(struct pkt *packet){
+  if(packet->checksum != calcula_checksum(packet)){
+    printf("\nCorrompido\n");
+    return 1;
+  }
+
+  return 0;
 }
 
 /*****************************************************************
@@ -324,11 +347,11 @@ void init() /* initialize the simulator */
   */
 
 
-  nsimmax = 25;
+  nsimmax = 100;
   lossprob = 0.1;
   corruptprob = 0.3;
   lambda = 2.0;
-  TRACE = 4;
+  TRACE = 1;
 
   srand(9999); /* init random number generator */
   sum = 0.0;   /* test random number generator for students */
