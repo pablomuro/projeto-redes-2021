@@ -42,6 +42,8 @@ struct pkt
 
 float RTT = 35.0;
 
+int pacotes_recebidos = 0;
+
 int sequencia_sender = 0;	/* Sequência esperada por A */
 int sequencia_receiver = 0;	/* Sequência esperada por B */
 int sender_em_espera = 0;			/* Se o sender A está esperando resposta */
@@ -141,7 +143,10 @@ void B_input(packet) struct pkt packet;
 		/* Envia os dados para o layer5 */
 		struct msg mensagem;
 		memcpy(mensagem.data, packet.payload, sizeof(packet.payload));
+
     printf("\n\nRecebido %s de A para B\n\n",mensagem.data);
+    pacotes_recebidos++;
+
 		tolayer5(1, mensagem.data);
 
     /* Passa para a proxima sequência */
@@ -322,6 +327,7 @@ void main(){
 
 terminate:
   printf(" Simulator terminated at time %f\n after sending %d msgs from layer5\n", time, nsim);
+  printf("%d pacotes recebidos\n", pacotes_recebidos);
 }
 
 void init() /* initialize the simulator */
@@ -349,8 +355,8 @@ void init() /* initialize the simulator */
 
   nsimmax = 100;
   lossprob = 0.1;
-  corruptprob = 0.3;
-  lambda = 2.0;
+  corruptprob = 0.2;
+  lambda = 1000.0;
   TRACE = 1;
 
   srand(9999); /* init random number generator */
