@@ -7,7 +7,7 @@
  ALTERNATING BIT AND GO-BACK-N NETWORK EMULATOR: VERSION 1.1  J.F.Kurose
 
    This code should be used for PA2, unidirectional or bidirectional
-   data transfer protocols (from A to B. Bidirectional transfer of data
+   data transfer protocols (from A to Receiver. Bidirectional transfer of data
    is for extra credit and is not required).  Network properties:
    - one way network delay averages five time units (longer if there
      are other messages in the channel for GBN), but can be larger
@@ -54,13 +54,13 @@ struct sender
   float estimated_rtt;
   int buffer_next;
   struct pkt packet_buffer[BUFSIZE]; // last send packet
-} A;
+} Sender;
 
 struct receiver
 {
   int expect_seq;
   struct pkt packet_to_send;
-} B;
+} Receiver;
 
 // caculate checksum
 int get_checksum(struct pkt *packet)
@@ -77,15 +77,15 @@ int get_checksum(struct pkt *packet)
 
 void send_window(void) 
 {
-  while (A.nextseq < A.buffer_next && A.nextseq < A.base + A.window_size) {
-    struct pkt * packet = &A.packet_buffer[A.nextseq % BUFSIZE];
+  while (Sender.nextseq < Sender.buffer_next && Sender.nextseq < Sender.base + Sender.window_size) {
+    struct pkt * packet = &Sender.packet_buffer[Sender.nextseq % BUFSIZE];
     char payload[21] = {0};
     memcpy(payload, packet->payload, 20);
-    printf(" send_window: send packet (seq=%d): %s\n", packet->seqnum, payload);
+    printf(" Enviando janela: enviando packet (seq=%d): %s\n", packet->seqnum, payload);
     tolayer3(0, *packet);
-    if (A.base == A.nextseq)
-      starttimer(0, A.estimated_rtt);
-    ++A.nextseq;
+    if (Sender.base == Sender.nextseq)
+      starttimer(0, Sender.estimated_rtt);
+    ++Sender.nextseq;
   }
 }
 
@@ -96,24 +96,22 @@ void A_output(message) struct msg message;
 {
   char data[21] = {0};
   memcpy(data, message.data, 20);
-  if (A.buffer_next - A.base >= BUFSIZE)
-    {
-        printf("  A_output: buffer full. drop the message: %s\n", data);
-        return;
-    }
-    printf("  A_output: bufferred packet (seq=%d): %s\n", A.buffer_next, data);
-    struct pkt *packet = &A.packet_buffer[A.buffer_next % BUFSIZE];
-    packet->seqnum = A.buffer_next;
-    memmove(packet->payload, message.data, 20);
-    packet->checksum = get_checksum(packet);
-    ++A.buffer_next;
-    send_window();
+  if (Sender.buffer_next - Sender.base >= BUFSIZE){
+      printf("  A_output: buffer cheio. esquece mensagem: %s\n", data);
+      return;
+  }
+  printf("  A_output: add ao buffer o packet (seq=%d): %s\n", Sender.buffer_next, data);
+  struct pkt *packet = &Sender.packet_buffer[Sender.buffer_next % BUFSIZE];
+  packet->seqnum = Sender.buffer_next;
+  memmove(packet->payload, message.data, 20);
+  packet->checksum = get_checksum(packet);
+  Sender.buffer_next++;
+  send_window();
 }
 
 void B_output(message) /* need be completed only for extra credit */
     struct msg message;
 {
-  printf(" B_output: uni-directional. ignore.\n");
 }
 
 /* called from layer 3, when a packet arrives for layer 4 */
@@ -122,53 +120,51 @@ void A_input(packet) struct pkt packet;
 {
   if (packet.checksum != get_checksum(&packet))
     {
-        printf("  A_input: packet corrupted. drop.\n");
+        printf("  A_input: pacote corrompido. esquece.\n");
         return;
     }
-    if (packet.acknum < A.base)
+    if (packet.acknum < Sender.base)
     {
-        printf("  A_input: got NAK (ack=%d). drop.\n", packet.acknum);
+        printf("  A_input: Recebeu NAK (ack=%d). esquece.\n", packet.acknum);
         return;
     }
-    printf("  A_input: got ACK (ack=%d)\n", packet.acknum);
-    A.base = packet.acknum + 1;
-    if (A.base == A.nextseq)
+    printf("  A_input: Recebeu ACK (ack=%d)\n", packet.acknum);
+    Sender.base = packet.acknum + 1;
+    if (Sender.base == Sender.nextseq)
     {
         stoptimer(0);
-        printf("  A_input: stop timer\n");
+        printf("  A_input: para timer e começa enviado de janela\n");
         send_window();
     }
     else
     {
-        starttimer(0, A.estimated_rtt);
-        printf("  A_input: timer + %f\n", A.estimated_rtt);
+        starttimer(0, Sender.estimated_rtt);
     }
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt()
 {
-  for (int i = A.base; i < A.nextseq; ++i)
+  for (int i = Sender.base; i < Sender.nextseq; ++i)
     {
-        struct pkt *packet = &A.packet_buffer[i % BUFSIZE];
+        struct pkt *packet = &Sender.packet_buffer[i % BUFSIZE];
         char payload[21] = {0};
         memcpy(payload, packet->payload, 20);
-        printf("  A_timerinterrupt: resend packet (seq=%d): %s\n", packet->seqnum, payload);
+        printf("  A_timerinterrupt: TimeOut - reenviando packet (seq=%d): %s\n", packet->seqnum, payload);
         tolayer3(0, *packet);
     }
-    starttimer(0, A.estimated_rtt);
-    printf("  A_timerinterrupt: timer + %f\n", A.estimated_rtt);
+    starttimer(0, Sender.estimated_rtt);
 }
 
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
 void A_init()
 {
-    A.base = 1;
-    A.nextseq = 1;
-    A.window_size = 8;
-    A.estimated_rtt = 15;
-    A.buffer_next = 1;
+    Sender.base = 1;
+    Sender.nextseq = 1;
+    Sender.window_size = 8;
+    Sender.estimated_rtt = 35.0;
+    Sender.buffer_next = 1;
 }
 
 /* Note that with simplex transfer from a-to-B, there is no B_output() */
@@ -178,43 +174,42 @@ void B_input(packet) struct pkt packet;
 {
   if (packet.checksum != get_checksum(&packet))
     {
-        printf("  B_input: packet corrupted. send NAK (ack=%d)\n", B.packet_to_send.acknum);
-        tolayer3(1, B.packet_to_send);
+        printf("  B_input: pacote corrompido. Enviando NAK (ack=%d)\n", Receiver.packet_to_send.acknum);
+        tolayer3(1, Receiver.packet_to_send);
         return;
     }
-    if (packet.seqnum != B.expect_seq)
+    if (packet.seqnum != Receiver.expect_seq)
     {
-        printf("  B_input: not the expected seq. send NAK (ack=%d)\n", B.packet_to_send.acknum);
-        tolayer3(1, B.packet_to_send);
+        printf("  B_input: Não é a seq esperada. Enviando NAK (ack=%d)\n", Receiver.packet_to_send.acknum);
+        tolayer3(1, Receiver.packet_to_send);
         return;
     }
 
-    printf("  B_input: recv packet (seq=%d): %s\n", packet.seqnum, packet.payload);
+    printf("  B_input: OK - pacote recebido (seq=%d) com dados: %s\n", packet.seqnum, packet.payload);
     tolayer5(1, packet.payload);
 
-    printf("  B_input: send ACK (ack=%d)\n", B.expect_seq);
-    B.packet_to_send.acknum = B.expect_seq;
-    B.packet_to_send.checksum = get_checksum(&B.packet_to_send);
-    tolayer3(1, B.packet_to_send);
+    printf("  B_input: Enviando ACK (ack=%d)\n", Receiver.expect_seq);
+    Receiver.packet_to_send.acknum = Receiver.expect_seq;
+    Receiver.packet_to_send.checksum = get_checksum(&Receiver.packet_to_send);
+    tolayer3(1, Receiver.packet_to_send);
 
-    ++B.expect_seq;
+    ++Receiver.expect_seq;
 }
 
 /* called when B's timer goes off */
 void B_timerinterrupt()
 {
-  printf(" B_timerinterrupt: B doesn't have a timer. ignore.\n");
 }
 
 /* the following rouytine will be called once (only) before any other */
 /* entity B routines are called. You can use it to do any initialization */
 void B_init()
 {
-    B.expect_seq = 1;
-    B.packet_to_send.seqnum = -1;
-    B.packet_to_send.acknum = 0;
-    memset(B.packet_to_send.payload, 0, 20);
-    B.packet_to_send.checksum = get_checksum(&B.packet_to_send);
+    Receiver.expect_seq = 1;
+    Receiver.packet_to_send.seqnum = -1;
+    Receiver.packet_to_send.acknum = 0;
+    memset(Receiver.packet_to_send.payload, 0, 20);
+    Receiver.packet_to_send.checksum = get_checksum(&Receiver.packet_to_send);
 }
 
 /*****************************************************************
@@ -363,16 +358,27 @@ void init() /* initialize the simulator */
   float jimsrand();
 
   printf("-----  Stop and Wait Network Simulator Version 1.1 -------- \n\n");
-  printf("Enter the number of messages to simulate: ");
-  scanf("%d", &nsimmax);
-  printf("Enter  packet loss probability [enter 0.0 for no loss]:");
-  scanf("%f", &lossprob);
-  printf("Enter packet corruption probability [0.0 for no corruption]:");
-  scanf("%f", &corruptprob);
-  printf("Enter average time between messages from sender's layer5 [ > 0.0]:");
-  scanf("%f", &lambda);
-  printf("Enter TRACE:");
-  scanf("%d", &TRACE);
+  /*
+  // printf("Enter the number of messages to simulate: ");
+  // scanf("%d", &nsimmax);
+  // printf("Enter  packet loss probability [enter 0.0 for no loss]:");
+  // scanf("%f", &lossprob);
+  // printf("Enter packet corruption probability [0.0 for no corruption]:");
+  // scanf("%f", &corruptprob);
+  // printf("Enter average time between messages from sender's layer5 [ > 0.0]:");
+  // scanf("%f", &lambda);
+  // printf("Enter TRACE:");
+  // scanf("%d", &TRACE); 
+
+  // TODO - Remover dados brutos
+  */
+
+
+  nsimmax = 20;
+  lossprob = 0.1;
+  corruptprob = 0.2;
+  lambda = 1000.0;
+  TRACE = 1;
 
   srand(9999); /* init random number generator */
   sum = 0.0;   /* test random number generator for students */

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
+#include <stdlib.h>
 
 /* ******************************************************************
  ALTERNATING BIT AND GO-BACK-N NETWORK EMULATOR: VERSION 1.1  J.F.Kurose
@@ -38,44 +39,56 @@ struct pkt
   char payload[20];
 };
 
+int generate_checksum(struct pkt *packet);
+int  is_corrupt(struct pkt *packet);
+void send_window();
+
+void tolayer3(int, struct pkt);
+void tolayer5(int, char *);
+void stoptimer(int);
+void starttimer(int, float);
+
+#define OFF 0
+#define ON 1
+#define A 0
+#define B 1
+
 /********* OS ALUNOS DEVEM ESCREVER AS SEGUINTES 07 ROTINAS*********/
 
-float RTT = 15.0;
+#define RTT 35.0
+#define BUFFER_SIZE 50
 
-float TAMANHO_JANELA = 8;
+struct sender{
+  int base;
+  int next_seq_num;
+  int window_size;
+  int buffer_next;
+  struct pkt last_packages[BUFFER_SIZE]; // last send packet
+} Sender;
 
-int base_send = 0;
-int num_proxima_seq = 0;
+struct receiver{
+  int expected_seq;               /* Sequência esperada por B */
+  struct pkt response_package;    /* Pacote de resposta enviado por B */
+} Receiver;
 
-int sequencia_sender = 0;	/* Sequência esperada por A */
-int sequencia_receiver = 0;	/* Sequência esperada por B */
-int sender_em_espera = 0;			/* Se o sender A está esperando resposta */
-
-struct pkt ultimo_pacote;	/* Último pacote enviado por A */
 
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(message) struct msg message;
 {
-	/* Se A está a espera de ACK retorna */
-	if (sender_em_espera){
-    /*  printf("Sender: Em Espera de ACK\n"); */
-		return;
+  char data[21] = {0};
+  memcpy(data, message.data, 20);
+  if (Sender.buffer_next - Sender.base >= BUFFER_SIZE){
+      printf("  A_output: buffer cheio. esquece mensagem: %s\n", data);
+      return;
   }
+  printf("  A_output: add ao buffer o packet (seq=%d): %s\n", Sender.buffer_next, data);
+  struct pkt *packet = &Sender.last_packages[Sender.buffer_next % BUFFER_SIZE];
+  packet->seqnum = Sender.buffer_next;
+  memmove(packet->payload, message.data, 20);
+  packet->checksum = generate_checksum(packet);
+  Sender.buffer_next++;
+  send_window();
 
-  /* Cria pacote e gera checksum */
-	memcpy(ultimo_pacote.payload, message.data, sizeof(message.data));
-	ultimo_pacote.seqnum = sequencia_sender;
-	ultimo_pacote.checksum = 0;
-	ultimo_pacote.checksum = calcula_checksum(&ultimo_pacote);
-
-  /* Envia pacote e inicia timer */
-	tolayer3(0, ultimo_pacote);
-	starttimer(0, RTT);
-
-  /* Coloca o sender A em estado de espera */
-	sender_em_espera = 1;
-
-	/* printf("Sender: Pacote enviado\n"); */
 }
 
 void B_output(message) struct msg message;
@@ -85,36 +98,49 @@ void B_output(message) struct msg message;
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(packet) struct pkt packet;
 {
-  /* Para o timer */
-  stoptimer(0);
-	if (packet.acknum == sequencia_sender) {	/* ACK */
-    /* Pacote aceito, passa para a proxima sequência e retira o sender do modo de espera */
-		sequencia_sender = 1 - sequencia_sender;
-		sender_em_espera = 0;
-	} else if (packet.acknum == -1) {		/* NAK */
-    /* Erro, reenvio de pacote e reinicio do timer */
-		tolayer3(0, ultimo_pacote);
-		starttimer(0, RTT);
-	}
+  if (is_corrupt(&packet)){
+    printf("  A_input: pacote corrompido. esquece.\n");
+    return;
+  }
+  if (packet.acknum < Sender.base){
+    printf("  A_input: Recebeu NAK (ack=%d). esquece.\n", packet.acknum);
+    return;
+  }
+
+  printf("  A_input: Recebeu ACK (ack=%d)\n", packet.acknum);
+  Sender.base = packet.acknum + 1;
+
+  if (Sender.base == Sender.next_seq_num){
+    stoptimer(0);
+    printf("  A_input: para timer e começa enviado de janela\n");
+    send_window();
+  }
+  else{
+    starttimer(A, RTT);
+  }
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt()
 {
-  /* Timeout, reenvio de pacote e reinicio do timer */
-  tolayer3(0, ultimo_pacote);
-	starttimer(0, RTT);
+  for (int i = Sender.base; i < Sender.next_seq_num; i++){
+    struct pkt *packet = &Sender.last_packages[i % BUFFER_SIZE];
+    char payload[21] = {0};
+    memcpy(payload, packet->payload, 20);
+    printf("  A_timerinterrupt: TimeOut - reenviando packet (seq=%d): %s\n", packet->seqnum, payload);
+    tolayer3(A, *packet);
+  }
+  starttimer(A, RTT);
 }
 
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
 void A_init()
 {
-  sequencia_sender = 0;	/* Sequência esperada por A */
-  sender_em_espera = 0;
-  
-  base_send = 0;
-  num_proxima_seq = 0;
+  Sender.base = 1;
+  Sender.next_seq_num = 1;
+  Sender.window_size = 8;
+  Sender.buffer_next = 1;
 }
 
 /* Note that with simplex transfer from a-to-B, there is no B_output() */
@@ -123,31 +149,28 @@ void A_init()
 void B_input(packet) struct pkt packet;
 {
 
-  struct pkt resposta;
+  if (is_corrupt(&packet)){
+      printf("  B_input: pacote corrompido. Enviando NAK (ack=%d)\n", Receiver.response_package.acknum);
+      tolayer3(B, Receiver.response_package);
+      return;
+  }
+  if (packet.seqnum != Receiver.expected_seq){
+      printf("  B_input: Não é a seq esperada. Enviando NAK (ack=%d)\n", Receiver.response_package.acknum);
+      tolayer3(B, Receiver.response_package);
+      return;
+  }
 
-  if (packet.seqnum == sequencia_receiver) {
-		/* Se checksum diferentes envia NAK */
-		if (packet.checksum != calcula_checksum(&packet)){
-			resposta.acknum = -1;
-			tolayer3(1, resposta);
-			return;
-		}
+  printf("  B_input: OK - pacote recebido (seq=%d) com dados: %s\n", packet.seqnum, packet.payload);
+  tolayer5(B, packet.payload);
 
-		/* Envia os dados para o layer5 */
-		struct msg mensagem;
-		memcpy(mensagem.data, packet.payload, sizeof(packet.payload));
-		tolayer5(1, mensagem.data);
+  printf("  B_input: Enviando ACK (ack=%d)\n", Receiver.expected_seq);
+  memset(Receiver.response_package.payload, 0, 20); 
 
-    /* Passa para a proxima sequência */
-		sequencia_receiver = 1 - sequencia_receiver;
+  Receiver.response_package.acknum = Receiver.expected_seq;
+  Receiver.response_package.checksum = generate_checksum(&Receiver.response_package);
+  tolayer3(B, Receiver.response_package);
 
-    /* printf("Receiver: Pacote aceito\n"); */
-	}
-
-	/* Envia ACK para A */
-
-	resposta.acknum = packet.seqnum;
-	tolayer3(1, resposta);
+  ++Receiver.expected_seq;
 }
 
 /* called when B's timer goes off */
@@ -159,12 +182,16 @@ void B_timerinterrupt()
 /* entity B routines are called. You can use it to do any initialization */
 void B_init()
 {
-  sequencia_receiver = 0;	/* Sequência esperada por B */
+  Receiver.expected_seq = 1;	        /* Sequência esperada por B */
+  Receiver.response_package.seqnum = -1;
+  Receiver.response_package.acknum = 0;
+  memset(Receiver.response_package.payload, 0, 20);
+  Receiver.response_package.checksum = generate_checksum(&Receiver.response_package);
 }
 
 /* Funções auxiliares */
 
-int calcula_checksum(struct pkt *packet)
+int generate_checksum(struct pkt *packet)
 {
   int checksum = 0;
   checksum += packet->seqnum;
@@ -174,6 +201,35 @@ int calcula_checksum(struct pkt *packet)
     checksum += packet->payload[i];
   }
   return checksum;
+}
+
+int is_corrupt(struct pkt *packet){
+  if(packet->checksum != generate_checksum(packet)){
+    printf("\nCorrompido\n");
+    return 1;
+  }
+
+  return 0;
+}
+
+void send_window() 
+{
+  while (Sender.next_seq_num < Sender.buffer_next && Sender.next_seq_num < Sender.base + Sender.window_size) {
+    struct pkt * packet = &Sender.last_packages[Sender.next_seq_num % BUFFER_SIZE];
+
+    char payload[21] = {0};
+    memcpy(payload, packet->payload, 20);
+
+    printf(" Enviando janela: enviando packet (seq=%d): %s\n", packet->seqnum, payload);
+
+    tolayer3(A, *packet);
+
+    if (Sender.base == Sender.next_seq_num){
+      starttimer(A, RTT);
+    }
+
+    Sender.next_seq_num++;
+  }
 }
 
 /*****************************************************************
@@ -206,11 +262,6 @@ struct event *evlist = NULL; /* the event list */
 #define TIMER_INTERRUPT 0
 #define FROM_LAYER5 1
 #define FROM_LAYER3 2
-
-#define OFF 0
-#define ON 1
-#define A 0
-#define B 1
 
 int TRACE = 1;   /* for my debugging */
 int nsim = 0;    /* number of messages from 5 to 4 so far */
@@ -332,11 +383,11 @@ void init() /* initialize the simulator */
   */
 
 
-  nsimmax = 25;
+  nsimmax = 16;
   lossprob = 0.1;
-  corruptprob = 0.3;
-  lambda = 2.0;
-  TRACE = 4;
+  corruptprob = 0.2;
+  lambda = 100.0;
+  TRACE = 1;
 
   srand(9999); /* init random number generator */
   sum = 0.0;   /* test random number generator for students */
@@ -380,7 +431,7 @@ void generate_next_arrival()
 {
   double x, log(), ceil();
   struct event *evptr;
-  char *malloc();
+  // char *malloc();
   float ttime;
   int tempint;
 
@@ -494,7 +545,7 @@ float increment;
 
   struct event *q;
   struct event *evptr;
-  char *malloc();
+  // char *malloc();
 
   if (TRACE > 2)
     printf("          START TIMER: starting timer at %f\n", time);
@@ -521,7 +572,7 @@ struct pkt packet;
 {
   struct pkt *mypktptr;
   struct event *evptr, *q;
-  char *malloc();
+  // char *malloc();
   float lastime, x, jimsrand();
   int i;
 
