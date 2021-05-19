@@ -150,17 +150,13 @@ void A_init()
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(packet) struct pkt packet;
 {
-
-  memset(Receiver.response_package.payload, 0, 20);
-
-  if (packet.seqnum == Receiver.expected_seq) {
-		/* Se checksum diferentes envia NAK */
-		if (is_corrupt(&packet)){
+  		/* Se checksum diferentes envia NAK */
+	if (is_corrupt(&packet)){
 			Receiver.response_package.acknum = NACK;
       printf("  B_input: Erro, enviando NAK\n");
 			tolayer3(B, Receiver.response_package);
 			return;
-		}
+	} else if (packet.seqnum == Receiver.expected_seq) {
 
 		/* Envia os dados para o layer5 */
 		struct msg mensagem;
