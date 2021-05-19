@@ -359,7 +359,7 @@ void init() /* initialize the simulator */
   float sum, avg;
   float jimsrand();
 
-  printf("-----  Stop and Wait Network Simulator Version 1.1 -------- \n\n");
+  printf("-----  Go Back N Network Simulator Version 1.1 -------- \n\n");
   /*
   // printf("Enter the number of messages to simulate: ");
   // scanf("%d", &nsimmax);
