@@ -54,7 +54,7 @@ void starttimer(int, float);
 
 /********* OS ALUNOS DEVEM ESCREVER AS SEGUINTES 07 ROTINAS*********/
 
-#define RTT 35.0
+#define RTT 35.0    // Tempo de incremento do TIMER
 
 #define ACK 1
 #define NACK -1
@@ -107,8 +107,6 @@ void A_input(packet) struct pkt packet;
   if(Sender.waiting == OFF){
     return;
   }
-  /* Erro, reenvio de pacote e reinicio do timer */
-  printf("  A_input: seqnum recebido: %d  seqnum esperado: %d\n", packet.seqnum, Sender.expected_seq);
 
   /* NAK */
   if (is_corrupt(&packet) || packet.acknum == NACK) {	

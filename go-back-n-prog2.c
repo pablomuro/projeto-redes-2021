@@ -54,16 +54,16 @@ void starttimer(int, float);
 
 /********* OS ALUNOS DEVEM ESCREVER AS SEGUINTES 07 ROTINAS*********/
 
-#define RTT 40.0
-#define BUFFER_SIZE 50
+#define RTT 40.0        // Tempo de incremento do TIMER
+#define BUFFER_SIZE 50  // Tamanho máximo do buffer de packages
 
 int package_count = 1;
 
 struct sender{
-  int base;
-  int next_seq_num;
-  int window_size;
-  struct pkt last_packages[BUFFER_SIZE]; // last send packet
+  int base;                               // Número de base da janela
+  int next_seq_num;                       // Número da próxima sequência de pacote a ser enviada
+  int window_size;                        // Tamanho da janela
+  struct pkt last_packages[BUFFER_SIZE];  // Array com os pacotes que a serem enviados
 } Sender;
 
 struct receiver{
@@ -75,12 +75,13 @@ struct receiver{
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(message) struct msg message;
 {
-
+  // Se Buffer cheio, mensagens são ignoradas 
   if (Sender.next_seq_num - Sender.base >= BUFFER_SIZE){
       printf("  A_output: Buffer cheio, mensagem: %s, não enviada\n", message.data);
       return;
   }
 
+  // Se next_seq_num menor que Base + N, é enviado um novo pacote
   if (Sender.next_seq_num < Sender.base + Sender.window_size) {
     printf("  A_output: Gerando novo pacote (seq=%d): %s\n", Sender.next_seq_num, message.data);
     
@@ -93,6 +94,7 @@ void A_output(message) struct msg message;
 
     tolayer3(A, *packet);
 
+    // Timer iniciado
     if (Sender.base == Sender.next_seq_num){
       starttimer(A, RTT);
     }
@@ -109,6 +111,7 @@ void B_output(message) struct msg message;
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(packet) struct pkt packet;
 {
+  // Erro, pacote corrompido ou ACK duplicado, ignora o packet
   if (is_corrupt(&packet) || packet.acknum < Sender.base){
     if(packet.acknum < Sender.base){
       printf("  A_input: ACK duplicado, esperando ACK Base (ack=%d)\n", Sender.base);
@@ -117,6 +120,7 @@ void A_input(packet) struct pkt packet;
     return;
   }
 
+  // ACK sucesso, passa a base para o acknum + 1
   printf("  A_input: Sucesso -> ACK para o pacote (seq=%d)\n", packet.acknum);
   printf("  A_input: Passando para a proxima base\n");
   Sender.base = packet.acknum + 1;
@@ -137,6 +141,7 @@ void A_input(packet) struct pkt packet;
 /* called when A's timer goes off */
 void A_timerinterrupt()
 {
+  // Se timeout, reenvia todos os pacotes em buffer a partir da base até next_seq_num e inicia timer
   for (int i = Sender.base; i < Sender.next_seq_num; i++){
     struct pkt *packet = &Sender.last_packages[i % BUFFER_SIZE];
 
@@ -151,6 +156,7 @@ void A_timerinterrupt()
 /* entity A routines are called. You can use it to do any initialization */
 void A_init()
 {
+  // Inicializa dados do Sender
   Sender.base = 1;
   Sender.next_seq_num = 1;
   Sender.window_size = 8;
@@ -161,6 +167,7 @@ void A_init()
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(packet) struct pkt packet;
 {
+  // Erro, pacote corrompido ou fora de ordem, reenvia o ACK do ultimo pacote de maior ordem recebido corretamente
   if (is_corrupt(&packet) || packet.seqnum != Receiver.expected_seq ){
     if(packet.seqnum != Receiver.expected_seq){
       printf("  B_input: Pacote fora de ordem ou duplicado\n");
@@ -172,6 +179,7 @@ void B_input(packet) struct pkt packet;
     return;
   }
 
+  // Pacote recebido com sucesso, enviado para o layer5 e gerado pacote de resposta com ACK da sequência
   printf("  B_input: Pacote (seq=%d) recebido com dados: %s\n", packet.seqnum, packet.payload);
   tolayer5(B, packet.payload);
 
@@ -194,7 +202,8 @@ void B_timerinterrupt()
 /* entity B routines are called. You can use it to do any initialization */
 void B_init()
 {
-  Receiver.expected_seq = 1;	        /* Sequência esperada por B */
+  //Inicia dados do receiver 
+  Receiver.expected_seq = 1;
   Receiver.response_package.seqnum = -1;
   Receiver.response_package.acknum = 0;
   memset(Receiver.response_package.payload, 0, 20);
