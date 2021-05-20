@@ -385,7 +385,7 @@ void init() /* initialize the simulator */
   */
 
 
-  nsimmax = 16;
+  nsimmax = 20;
   lossprob = 0.1;
   corruptprob = 0.2;
   lambda = 120.0;
