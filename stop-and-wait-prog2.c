@@ -375,10 +375,10 @@ void init() /* initialize the simulator */
   // TODO - Remover dados brutos
   */
 
-  nsimmax = 20;
-  lossprob = 0.1;
-  corruptprob = 0.2;
-  lambda = 1000.0;
+  nsimmax = 20;  // N de msg
+  lossprob = 0.1; // prob de perda
+  corruptprob = 0.2; // prob de corrupção
+  lambda = 1000.0; // tempo médio entre mensagens
   TRACE = 2;
 
   srand(9999); /* init random number generator */

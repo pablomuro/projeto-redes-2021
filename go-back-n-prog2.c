@@ -388,7 +388,7 @@ void init() /* initialize the simulator */
   nsimmax = 20;
   lossprob = 0.1;
   corruptprob = 0.2;
-  lambda = 120.0;
+  lambda = 20.0;
   TRACE = 2;
 
   srand(9999); /* init random number generator */
